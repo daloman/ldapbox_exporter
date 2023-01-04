@@ -13,31 +13,27 @@ import (
 	ldap "github.com/go-ldap/ldap/v3"
 )
 
-var bindUser, bindPassword string
-var ldapAddr string
-var ldapPort string
-
 func init() {
 	log.SetFormatter(&log.JSONFormatter{})
 }
 func main() {
 	bindUser, bindUserDefined := os.LookupEnv("BIND_USER")
-	if bindUserDefined == false || bindUser == "" {
+	if !bindUserDefined || bindUser == "" {
 		log.Fatal("BIND_USER variable is undefined or is empty")
 	}
 
 	bindPassword, bindPasswordDefined := os.LookupEnv("BIND_PASSWORD")
-	if bindPasswordDefined == false || bindPassword == "" {
+	if !bindPasswordDefined || bindPassword == "" {
 		log.Fatal("BIND_PASSWORD variable is undefined or is empty")
 	}
 
 	ldapAddr, ldapAddrDefined := os.LookupEnv("LDAP_ADDR")
-	if ldapAddrDefined == false || ldapAddr == "" {
+	if !ldapAddrDefined || ldapAddr == "" {
 		log.Fatal("LDAP_ADDR variable is undefined or is empty")
 	}
 
 	ldapPort, ldapPortDefined := os.LookupEnv("LDAP_PORT")
-	if ldapPortDefined == false || ldapPort == "" {
+	if !ldapPortDefined || ldapPort == "" {
 		log.Fatal("LDAP_PORT variable is undefined or is empty")
 	}
 
@@ -53,7 +49,8 @@ func recordMetrics(ldapUrl, bindUser, bindPassword string) {
 
 	go func() {
 		for {
-			bindLdapDuration, searchTimeDuration := probeLdap(ldapUrl, bindUser, bindPassword)
+			connTimeDuration, bindLdapDuration, searchTimeDuration := probeLdap(ldapUrl, bindUser, bindPassword)
+			connDuration.Set(connTimeDuration)
 			bindDuration.Set(bindLdapDuration)
 			searchDuration.Set(searchTimeDuration)
 			time.Sleep(10 * time.Second)
@@ -62,6 +59,10 @@ func recordMetrics(ldapUrl, bindUser, bindPassword string) {
 }
 
 var (
+	connDuration = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "ldap_connection_delay",
+		Help: "LDAP connection delay milliseconds",
+	})
 	bindDuration = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "ldap_bind_delay",
 		Help: "LDAP bind delay milliseconds",
@@ -72,11 +73,13 @@ var (
 	})
 )
 
-func probeLdap(ldapUrl, bindUser, bindPassword string) (float64, float64) {
+func probeLdap(ldapUrl, bindUser, bindPassword string) (float64, float64, float64) {
+	startConnTime := time.Now()
 	l, err := ldap.DialURL(ldapUrl)
 	if err != nil {
 		log.Fatalf("Connection failure: %v\n", err)
 	}
+	connTimeDuration := float64(time.Since(startConnTime).Milliseconds())
 
 	defer l.Close()
 
@@ -110,5 +113,5 @@ func probeLdap(ldapUrl, bindUser, bindPassword string) (float64, float64) {
 		log.Infof("%s: %v\n", entry.DN, entry.GetAttributeValue("cn"))
 	}
 
-	return bindLdapDuration, searchTimeDuration
+	return connTimeDuration, bindLdapDuration, searchTimeDuration
 }
