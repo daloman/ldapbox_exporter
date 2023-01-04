@@ -15,6 +15,10 @@ import (
 
 const probeIterval = 10 * time.Second
 
+var searchBaseDn = "DC=example,DC=com"
+var searchFilter = "(&(objectclass=*))"
+var searchAttributes = []string{"dn", "cn"}
+
 func init() {
 	log.SetFormatter(&log.JSONFormatter{})
 }
@@ -83,6 +87,7 @@ func probeLdap(ldapUrl, bindUser, bindPassword string) (float64, float64, float6
 		log.Fatalf("Connection failure: %v\n", err)
 	}
 	connTimeDuration := float64(time.Since(startConnTime).Milliseconds())
+	log.Infof("Connect duration: %v", connTimeDuration)
 
 	defer l.Close()
 
@@ -97,10 +102,10 @@ func probeLdap(ldapUrl, bindUser, bindPassword string) (float64, float64, float6
 	log.Infof("Bind duration: %v", bindLdapDuration)
 
 	searchRequest := ldap.NewSearchRequest(
-		"DC=example,DC=com", // The base dn to search
+		searchBaseDn, // The base dn to search
 		ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
-		"(&(objectclass=*))", // The filter to apply
-		[]string{"dn", "cn"}, // A list attributes to retrieve
+		searchFilter,     // The filter to apply
+		searchAttributes, // A list attributes to retrieve
 		nil,
 	)
 
