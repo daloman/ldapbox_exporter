@@ -72,11 +72,6 @@ var (
 	})
 )
 
-func timeTrace(name string) float64 {
-	start := time.Now()
-	return float64(time.Since(start))
-}
-
 func probeLdap(ldapUrl, bindUser, bindPassword string) (float64, float64) {
 	l, err := ldap.DialURL(ldapUrl)
 	if err != nil {
