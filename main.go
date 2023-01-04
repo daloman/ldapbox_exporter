@@ -13,9 +13,12 @@ import (
 	ldap "github.com/go-ldap/ldap/v3"
 )
 
+const probeIterval = 10 * time.Second
+
 func init() {
 	log.SetFormatter(&log.JSONFormatter{})
 }
+
 func main() {
 	bindUser, bindUserDefined := os.LookupEnv("BIND_USER")
 	if !bindUserDefined || bindUser == "" {
@@ -53,7 +56,7 @@ func recordMetrics(ldapUrl, bindUser, bindPassword string) {
 			connDuration.Set(connTimeDuration)
 			bindDuration.Set(bindLdapDuration)
 			searchDuration.Set(searchTimeDuration)
-			time.Sleep(10 * time.Second)
+			time.Sleep(probeIterval)
 		}
 	}()
 }
