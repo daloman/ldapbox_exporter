@@ -14,7 +14,7 @@ COPY . .
 
 RUN CGO_ENABLED=0 go build -o ldapbox_exporter -ldflags '-w -extldflags "-static"' .
 
-FROM alpine:3.9
+FROM alpine:3.17
 
 RUN apk add --no-cache ca-certificates
 
