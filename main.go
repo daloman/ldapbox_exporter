@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -10,14 +11,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 
+	defaultenv "github.com/caitlinelfring/go-env-default"
 	ldap "github.com/go-ldap/ldap/v3"
 )
 
 const probeIterval = 10 * time.Second
 
-var searchBaseDn = "DC=example,DC=com"
-var searchFilter = "(&(objectclass=*))"
-var searchAttributes = []string{"dn", "cn"}
+//var searchAttributes = []string{"dn", "cn"}
 
 func init() {
 	log.SetFormatter(&log.JSONFormatter{})
@@ -39,24 +39,53 @@ func main() {
 		log.Fatal("LDAP_ADDR variable is undefined or is empty")
 	}
 
-	ldapPort, ldapPortDefined := os.LookupEnv("LDAP_PORT")
-	if !ldapPortDefined || ldapPort == "" {
-		log.Fatal("LDAP_PORT variable is undefined or is empty")
+	searchBaseDn, searchBaseDnDefined := os.LookupEnv("BASE_DN")
+	if !searchBaseDnDefined || searchBaseDn == "" {
+		log.Fatal("BASE_DN variable is undefined or is empty")
 	}
 
+	ldapPort := defaultenv.GetDefault("LDAP_PORT", "389")
+	searchFilter := defaultenv.GetDefault("SEARCH_FILTER", "(&(objectclass=*))")
+	attributesList := defaultenv.GetDefault("SEARCH_ATTRIBUTES", "cn dn")
+	searchAttributes := parseAttributesList(attributesList)
+	log.Infof("Search_Attributes is: %v", searchAttributes)
+
 	ldapUrl := "ldap://" + ldapAddr + ":" + ldapPort
-	recordMetrics(ldapUrl, bindUser, bindPassword)
+
+	recordMetrics(ldapUrl, bindUser, bindPassword, searchBaseDn, searchFilter, searchAttributes)
 	//
 	http.Handle("/metrics", promhttp.Handler())
 	http.ListenAndServe(":2112", nil)
 
 }
 
-func recordMetrics(ldapUrl, bindUser, bindPassword string) {
+func parseAttributesList(attributesList string) []string {
+	res := make([]string, 0)
+	// Trim spaces
+	aList := strings.Trim(attributesList, " ")
+	for {
+		if strings.Contains(aList, " ") {
+			spaceIndex := strings.Index(aList, " ")
+			attribute := aList[:spaceIndex]
+			res = append(res, attribute)
+			aList = aList[spaceIndex+1:]
+			aList = strings.Trim(aList, " ")
+		} else {
+			attribute := aList
+			res = append(res, attribute)
+			break
+		}
+	}
+	return res
+}
+
+func recordMetrics(ldapUrl, bindUser, bindPassword, searchBaseDn, searchFilter string,
+	searchAttributes []string) {
 
 	go func() {
 		for {
-			connTimeDuration, bindLdapDuration, searchTimeDuration := probeLdap(ldapUrl, bindUser, bindPassword)
+			connTimeDuration, bindLdapDuration, searchTimeDuration := probeLdap(ldapUrl,
+				bindUser, bindPassword, searchBaseDn, searchFilter, searchAttributes)
 			connDuration.Set(connTimeDuration)
 			bindDuration.Set(bindLdapDuration)
 			searchDuration.Set(searchTimeDuration)
@@ -80,11 +109,14 @@ var (
 	})
 )
 
-func probeLdap(ldapUrl, bindUser, bindPassword string) (float64, float64, float64) {
+func probeLdap(ldapUrl, bindUser, bindPassword, searchBaseDn, searchFilter string,
+	searchAttributes []string) (float64, float64, float64) {
+
 	startConnTime := time.Now()
+
 	l, err := ldap.DialURL(ldapUrl)
 	if err != nil {
-		log.Fatalf("Connection failure: %v\n", err)
+		log.Errorf("Connection failure: %v\n", err)
 	}
 	connTimeDuration := float64(time.Since(startConnTime).Milliseconds())
 	log.Infof("Connect duration: %v", connTimeDuration)
@@ -95,7 +127,7 @@ func probeLdap(ldapUrl, bindUser, bindPassword string) (float64, float64, float6
 
 	err = l.Bind(bindUser, bindPassword)
 	if err != nil {
-		log.Fatalf("Bind failure: %v\n", err)
+		log.Errorf("Bind failure: %v\n", err)
 	}
 
 	bindLdapDuration := float64(time.Since(startBindTime).Milliseconds())
@@ -112,7 +144,7 @@ func probeLdap(ldapUrl, bindUser, bindPassword string) (float64, float64, float6
 	startSearchTime := time.Now()
 	sr, err := l.Search(searchRequest)
 	if err != nil {
-		log.Fatalf("Search failure: %v\n", err)
+		log.Errorf("Search failure: %v\n", err)
 	}
 
 	searchTimeDuration := float64(time.Since(startSearchTime).Milliseconds())
